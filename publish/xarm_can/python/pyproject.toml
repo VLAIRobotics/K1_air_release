@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=71,<81", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xarm-can"
+version = "1.1.0.post1"
+description = "XArm SocketCAN native Python bindings"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+license = {text = "Apache-2.0"}

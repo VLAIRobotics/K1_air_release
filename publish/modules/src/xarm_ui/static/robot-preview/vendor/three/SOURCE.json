@@ -1,0 +1,16 @@
+{
+  "project": "three.js",
+  "version": "0.164.1",
+  "upstream_tag": "r164",
+  "upstream": "https://github.com/mrdoob/three.js/tree/r164",
+  "license": "MIT",
+  "modifications": "Loader/controls bare imports of three changed to relative ../three.module.js for offline browser use.",
+  "sha256": {
+    "LICENSE": "4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454",
+    "controls/OrbitControls.js": "9b4b1604df6791ac104530cbd937a812412d7cb0d312cd2e8400e3af795a20cb",
+    "loaders/ColladaLoader.js": "bf207c9383e18e3d1955a22be5691dc0eaa6c9a771fde8bd14468a342e213927",
+    "loaders/STLLoader.js": "8be19a330fd9d27795b27a4e11a37f2c9e528cae35c484c4c4b35232fc1a721c",
+    "loaders/TGALoader.js": "68ed697521d1a99a6a0eec46242e59be5b11459980964206e7faab862fe5a7b9",
+    "three.module.js": "a97ec6852978949b7941c070b81292b842473a37549222353fa0a70c18d7285a"
+  }
+}

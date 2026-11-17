@@ -1,0 +1,18 @@
+{
+  "artifacts": [
+    {
+      "file": "prebuilt/linux-aarch64/xarm_can.cpython-310-aarch64-linux-gnu.so",
+      "sha256": "143d187093e702e3c0e34bc7aeb03a0c49dd06a5e7ccd7a369348c44b3f26bce",
+      "python": "CPython 3.10",
+      "source": "Existing SDK aarch64 binary, retained without rebuilding",
+      "hardware_validated": false
+    },
+    {
+      "file": "prebuilt/linux-x86_64/xarm_can.cpython-310-x86_64-linux-gnu.so",
+      "sha256": "4f342d313a6bb67b62b692ec907caff0d65b7bf0b517cb80a7f69df8d51b7139",
+      "python": "CPython 3.10",
+      "source": "Rebuilt from the supplied xarm_can C++ core and nanobind sources in Ubuntu 22.04",
+      "hardware_validated": false
+    }
+  ]
+}

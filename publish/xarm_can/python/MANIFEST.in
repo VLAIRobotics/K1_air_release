@@ -1,0 +1,2 @@
+recursive-include prebuilt *.so
+include ARTIFACTS.json
