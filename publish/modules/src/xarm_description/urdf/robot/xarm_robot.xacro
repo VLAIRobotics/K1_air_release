@@ -146,7 +146,17 @@
 
     <xacro:if value="${not bimanual}">
 
-        <link name="world" />
+        <xacro:xarm_body
+        body_type="${body_type}"
+        body_prefix="${body_prefix_modified}"
+        no_prefix="${no_prefix}"
+        description_pkg="xarm_description"
+        connected_to="${body_connected_to}"
+        xyz="${xyz}"
+        rpy="${rpy}"
+        inertials="${body_inertials}"
+        kinematics="${body_kinematics}"
+        kinematics_link="${body_kinematics_link}" />
 
         <!-- Single-arm mounts exactly like whichever bimanual arm it
              physically corresponds to (same connected_to/xyz/rpy/reflect
@@ -164,7 +174,7 @@
         kinematics_link="${kinematics_link}"
         kinematics_offset="${kinematics_offset}"
         inertials="${inertials}"
-        connected_to="world"
+        connected_to="xarm_body_link0"
         reflect_override="${'1' if single_side == 'right' else '-1'}"
         />
 

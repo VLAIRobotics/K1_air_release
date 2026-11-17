@@ -28,6 +28,27 @@
     </joint>
     </xacro:unless>
 
+    <!-- Lower pedestal from OpenArm; upper xarm housing begins at Z=496.0514 mm. -->
+    <link name="${prefix}pedestal_lower">
+      <visual>
+        <geometry>
+          <mesh filename="package://${description_pkg}/meshes/body/${body_type}/visual/pedestal_lower.stl" scale="0.001 0.001 0.001" />
+        </geometry>
+        <material name="pedestal_white"><color rgba="1 1 1 1" /></material>
+      </visual>
+      <!-- Match the visible pedestal instead of filling its surrounding empty space. -->
+      <collision>
+        <geometry>
+          <mesh filename="package://${description_pkg}/meshes/body/${body_type}/visual/pedestal_lower.stl" scale="0.001 0.001 0.001" />
+        </geometry>
+      </collision>
+    </link>
+    <joint name="${prefix}pedestal_lower_joint" type="fixed">
+      <parent link="${prefix}link0" />
+      <child link="${prefix}pedestal_lower" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
+    </joint>
+
     <xacro:body_link_with_sc
     name="body_link0"
     no_prefix="${no_prefix}"

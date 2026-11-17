@@ -110,6 +110,8 @@
     <passive_joint name="xarm_left_finger_joint2"/>
     <passive_joint name="xarm_right_finger_joint2"/>
     <!--DISABLE COLLISIONS: By default it is assumed that any link of the robot could potentially come into collision with any other link in the robot. This tag disables collision checking between a specified pair of links. -->
+    <!-- Fixed pedestal mounting interface; assembly overlap is intentional. -->
+    <disable_collisions link1="xarm_body_link0" link2="xarm_body_pedestal_lower" reason="Adjacent"/>
     <disable_collisions link1="xarm_body_link0" link2="xarm_left_link0" reason="Adjacent"/>
     <disable_collisions link1="xarm_body_link0" link2="xarm_left_link1" reason="Never"/>
     <disable_collisions link1="xarm_body_link0" link2="xarm_left_link2" reason="Never"/>
