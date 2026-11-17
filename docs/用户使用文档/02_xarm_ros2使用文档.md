@@ -74,12 +74,85 @@ bash src/xarm_ros2/start_xarm_ros2.sh \
 
 ### 双臂直接位置控制
 
+下列命令从 `publish/modules` 执行。每次另开命令或检查终端，先加载环境；如果设置了 `ROS_DOMAIN_ID`，所有终端必须一致：
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+```
+
+先启动假硬件位置控制：
+
 ```bash
 bash src/xarm_ros2/start_xarm_ros2.sh \
   mode:=bimanual scene:=control hardware:=fake controller:=position
 ```
 
-直接位置控制接收左右控制器各自 `commands` 话题上的 Float64MultiArray，每臂按 joint1～joint7 顺序提供 7 个弧度值。它不做 MoveIt 路径规划，不要直接跳变到未经核对的目标。
+该场景启动双臂位置控制器，不启动 MoveIt 或双臂 RViz。另开已加载环境的终端检查：
+
+```bash
+ros2 control list_controllers
+ros2 topic echo /joint_states --once
+```
+
+预期 `left_forward_position_controller`、`right_forward_position_controller`、左右夹爪控制器和 `joint_state_broadcaster` 为 `active`。位置模式不要求左右 `joint_trajectory_controller` 为 active。
+
+| 受控臂 | 位置目标话题 | 数组顺序 |
+|---|---|---|
+| 左臂 | `/left_forward_position_controller/commands` | `xarm_left_joint1`～`xarm_left_joint7` |
+| 右臂 | `/right_forward_position_controller/commands` | `xarm_right_joint1`～`xarm_right_joint7` |
+
+消息类型为 `std_msgs/msg/Float64MultiArray`，每次提供完整的 **7 个弧度值**；不是角度，也不包含夹爪。1°约为0.0174533 rad。不要直接按 `/joint_states` 数组顺序复制目标，必须用 `name` 对应 `position` 后按上表重排。
+
+以下绝对目标仅用于全新启动、7轴初始均为0的 **fake 会话**。左臂只改变第7关节到0.05 rad（约2.86°）：
+
+```bash
+ros2 topic pub --once /left_forward_position_controller/commands std_msgs/msg/Float64MultiArray \
+  "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05]}"
+ros2 topic echo /joint_states --once
+```
+
+预期 `xarm_left_joint7` 接近0.05，其余左臂关节维持0；右臂保留原目标。对应的右臂示例同样只在该 fake 会话执行：
+
+```bash
+ros2 topic pub --once /right_forward_position_controller/commands std_msgs/msg/Float64MultiArray \
+  "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05]}"
+```
+
+预期 `xarm_right_joint7` 接近0.05，左臂目标不受影响。左右话题独立，连续执行两条命令不是严格同步的双臂轨迹。`--once` 只发布一次，控制器随后使用收到的位置目标；Ctrl+C 停止发布工具不等于撤销已发送目标。
+
+### 双臂真机基础位置启动
+
+先退出假硬件会话，配置好实际 CAN，并确认没有遥操或其他程序占用双臂。以下仅以右 can1、左 can3 为例，按实际接线修改：
+
+```bash
+bash src/xarm_ros2/start_xarm_ros2.sh \
+  mode:=bimanual scene:=control hardware:=real controller:=position \
+  right_can_interface:=can1 left_can_interface:=can3
+```
+
+启动会接管双臂。真机使用相同的位置话题，但目标必须依据当前实际反馈和工作空间确定，不能照搬上面的全零附近示例。每条消息是7轴绝对目标，不是相对增量。
+
+直接位置控制不会生成 MoveIt 避障路径，也没有 `time_from_start`：目标收到后在后续控制周期转发到硬件，而不是保证经过指定秒数到达。机械臂实际运动速度还取决于驱动和机械响应；一次发送较大目标差值可能造成快速运动。需要按时间插值时，先退出当前场景，再使用 `controller:=trajectory`；需要 RViz 规划执行时使用前文 MoveIt 入口。两种控制器不能同时占用同一组位置接口。
+
+### 单臂直接位置控制
+
+单臂接口沿用统一入口，下面仍是假硬件示例：
+
+```bash
+bash src/xarm_ros2/start_xarm_ros2.sh \
+  mode:=single scene:=control hardware:=fake controller:=position \
+  can_interface:=can0 single_side:=left rviz:=true
+```
+
+启动后，另开已加载环境的终端向 `/forward_position_controller/commands` 发送 `Float64MultiArray`，顺序为 `xarm_joint1`～`xarm_joint7`，不带 `left_` 或 `right_`：
+
+```bash
+ros2 topic pub --once /forward_position_controller/commands std_msgs/msg/Float64MultiArray \
+  "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05]}"
+```
+
+该示例仅适用于全新 fake 会话，预期 RViz 当前模型和 `xarm_joint7` 反馈跟随目标。真机改为 `hardware:=real`，并根据实际当前位姿准备目标。
 
 只使用本文统一参数。位置式模式参数及旧的硬件、控制器和显示参数已移除；双臂真机必须显式指定左右 CAN。
 
