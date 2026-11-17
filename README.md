@@ -21,7 +21,7 @@
 
 本次底盘 SI 指令修复要求配套坐标修正版固件，具体坐标约定见 V1.2.6 模块说明。
 
-更新范围见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
+后续改动记录在 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 使用文档顺序
 
