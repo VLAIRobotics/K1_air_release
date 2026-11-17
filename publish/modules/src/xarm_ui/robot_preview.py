@@ -3,6 +3,7 @@
 No publishers, control commands, subprocesses, CAN access or ROS shutdown live here.
 The camera runtime owns its node/executor; this module only adds subscriptions.
 """
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -213,7 +214,8 @@ class RobotPreviewManager:
                 raise ValueError("Model references an unsupported asset")
             relative = filename[len(prefix):]
             self.mesh_path(relative)
-            mesh.set("filename", "/api/robot-preview/meshes/" + relative)
+            revision = hashlib.sha256(self.mesh_path(relative).read_bytes()).hexdigest()[:16]
+            mesh.set("filename", "/api/robot-preview/meshes/_v/" + revision + "/" + relative)
         return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
     def mesh_path(self, relative):
@@ -236,15 +238,22 @@ def register_robot_preview(app, ros_manager=None, description_dir=None, product=
     @app.get("/api/robot-preview/model")
     def robot_preview_model():
         try:
-            return Response(manager.model_xml(), mimetype="application/xml")
+            response = Response(manager.model_xml(), mimetype="application/xml")
+            response.headers["Cache-Control"] = "no-store"
+            return response
         except (OSError, ValueError, ET.ParseError):
             return jsonify(success=False, message="模型资源不可用"), 503
 
     @app.get("/api/robot-preview/meshes/<path:relative>")
-    def robot_preview_mesh(relative):
+    @app.get("/api/robot-preview/meshes/_v/<revision>/<path:relative>")
+    def robot_preview_mesh(relative, revision=None):
         try:
-            return send_file(manager.mesh_path(relative), conditional=True,
-                             max_age=3600)
+            path = manager.mesh_path(relative)
+            if revision is not None and revision != hashlib.sha256(path.read_bytes()).hexdigest()[:16]:
+                abort(404)
+            response = send_file(path, conditional=True, max_age=0)
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            return response
         except (OSError, ValueError):
             abort(404)
 

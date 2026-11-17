@@ -180,7 +180,7 @@ export function mountRobotPreview(container, options = {}) {
     const abort = new AbortController(); pending.add(abort);
     const timer = setTimeout(() => abort.abort(), 15000);
     try {
-      const response = await fetch(path, { signal: abort.signal });
+      const response = await fetch(path, { signal: abort.signal, cache: 'no-store' });
       // Consume the body before releasing the timeout and return a buffered Response.
       const body = await response.arrayBuffer();
       return new Response(body, { status: response.status, headers: response.headers });
