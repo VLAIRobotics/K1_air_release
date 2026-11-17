@@ -34,6 +34,10 @@ publish/modules/src/xarm_ui/
 
 先激活与 ROS2 Humble 兼容的 Python 3.10 环境。从 **SDK 根目录**执行：
 
+`rosdep install` 会读取 `src` 下各软件包的 `package.xml`，通过系统包管理器安装缺少的编译及运行依赖。`--ignore-src` 跳过源码中已提供的软件包，`-r` 遇到部分失败仍继续，`-y` 自动确认，`--rosdistro humble` 指定 ROS 2 Humble。首次安装或新增依赖时执行即可；完成后检查有无失败项，平时启动无需重复执行。
+
+若下载慢，查看终端中的下载地址：`packages.ros.org` 下载慢时，需要调整 **ROS 2 软件源**，仅更换 Ubuntu 软件源不能解决该地址的下载速度问题。国内镜像可参考 [清华大学 TUNA ROS 2 镜像使用说明](https://mirrors.tuna.tsinghua.edu.cn/help/ros2/)。本 SDK 使用 Ubuntu 22.04 / ROS 2 Humble，配置时选择 **jammy**，架构按实际设备选择（x86_64 对应 amd64，ARM64 对应 arm64）；不要直接照抄其他 Ubuntu 版本的示例。按镜像说明更新现有 ROS 2 源，避免重复配置，再执行 `sudo apt update`，重新运行下面的依赖安装命令，已安装的软件包会跳过。
+
 ```bash
 # 首次部署：安装遥操作预编译库所需的 yaml-cpp 0.8
 bash ./scripts/install_yaml_cpp_08.sh
