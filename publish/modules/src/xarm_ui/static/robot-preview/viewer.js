@@ -119,10 +119,14 @@ async function modelFromURDF(xml, scene, fetchAsset) {
   return {
     group, joints, meshCount,
     update(positions) {
+      let changed = false;
       for (const [name, joint] of joints) {
         const value = positions[name];
-        if (!joint.mimic && Number.isFinite(value)) joint.value = value;
+        if (!joint.mimic && Number.isFinite(value) && Math.abs(joint.value - value) > 1e-5) {
+          joint.value = value; changed = true;
+        }
       }
+      if (!changed) return false;
       const apply = joint => {
         if (joint.type === 'revolute' || joint.type === 'continuous') joint.motion.quaternion.setFromAxisAngle(joint.axis, joint.value);
         if (joint.type === 'prismatic') joint.motion.position.copy(joint.axis).multiplyScalar(joint.value);
@@ -132,6 +136,7 @@ async function modelFromURDF(xml, scene, fetchAsset) {
         const master = joints.get(joint.mimic.joint);
         if (master) { joint.value = master.value * joint.mimic.multiplier + joint.mimic.offset; apply(joint); }
       }
+      return true;
     },
   };
 }
@@ -143,7 +148,7 @@ export function mountRobotPreview(container, options = {}) {
       <div class="x1-preview-heading"><strong data-model-title>机器人实时姿态</strong><button type="button" aria-label="复位模型视角">复位视角</button></div>
       <div class="x1-preview-viewport"><div class="x1-preview-message">正在加载模型…</div></div>
       <div class="x1-preview-states"><span data-side="left">左臂：未连接</span><span data-side="right">右臂：未连接</span></div>
-      <div class="x1-preview-note">旋转：拖动 · 缩放：滚轮 · 仅显示收到的 ROS 反馈</div>
+      <div class="x1-preview-note">轻量预览 · 旋转：拖动 · 缩放：滚轮 · 仅显示收到的 ROS 反馈</div>
     </section>`;
   if (!document.getElementById('x1-robot-viewer-style')) {
     const style = document.createElement('style'); style.id = 'x1-robot-viewer-style';
@@ -164,10 +169,41 @@ export function mountRobotPreview(container, options = {}) {
   }
   const viewport = container.querySelector('.x1-preview-viewport');
   const message = container.querySelector('.x1-preview-message');
-  let renderer, controls, observer, robot, animation, pollTimer, destroyed = false;
+  let renderer, controls, observer, robot, pollTimer, statusTimer, visibilityObserver, destroyed = false;
+  let animation = null, frameTimer = null, lastFrame = -Infinity, rendering = false, dirty = false;
+  let intersecting = true, polling = false;
+  const frameInterval = 1000 / 15;
+  const isVisible = () => !document.hidden && intersecting;
   const pending = new Set();
+  const title = container.querySelector('[data-model-title]');
+  const badges = Object.fromEntries(['left', 'right'].map(side => [side, container.querySelector(`[data-side=${side}]`)]));
+  const cancelFrame = () => {
+    clearTimeout(frameTimer); frameTimer = null;
+    if (animation !== null) cancelAnimationFrame(animation);
+    animation = null;
+  };
+  const requestRender = () => {
+    dirty = true;
+    if (destroyed || !renderer || !isVisible() || rendering || animation !== null || frameTimer !== null) return;
+    frameTimer = setTimeout(() => {
+      frameTimer = null;
+      if (!destroyed && isVisible()) animation = requestAnimationFrame(drawFrame);
+    }, Math.max(0, frameInterval - (performance.now() - lastFrame)));
+  };
+  const drawFrame = timestamp => {
+    animation = null;
+    if (destroyed || !isVisible()) return;
+    dirty = false; rendering = true;
+    const moving = controls.update();
+    renderer.render(sceneForRender, cameraForRender);
+    rendering = false; lastFrame = timestamp;
+    if (moving || dirty) requestRender();
+  };
+  let sceneForRender, cameraForRender;
   const api = { destroy() {
-    destroyed = true; clearTimeout(pollTimer); cancelAnimationFrame(animation);
+    destroyed = true; clearTimeout(pollTimer); clearInterval(statusTimer); cancelFrame();
+    document.removeEventListener('visibilitychange', handleVisibility);
+    visibilityObserver?.disconnect(); controls?.removeEventListener('change', requestRender);
     pending.forEach(controller => controller.abort()); observer?.disconnect(); controls?.dispose();
     robot?.group.traverse(object => {
       object.geometry?.dispose();
@@ -196,24 +232,30 @@ export function mountRobotPreview(container, options = {}) {
     } finally { clearTimeout(timer); pending.delete(abort); }
   };
   const markStates = (state, unavailable = false) => {
-    if (state?.model) container.querySelector('[data-model-title]').textContent = `${state.model} 实时姿态`;
+    const heading = state?.model ? `${state.model} 实时姿态` : title.textContent;
+    if (title.textContent !== heading) title.textContent = heading;
     const prefix = state?.joint_prefix || 'xarm_';
     for (const side of ['left', 'right']) {
-      const badge = container.querySelector(`[data-side=${side}]`);
+      const badge = badges[side];
       const arm = state?.arms?.[side];
       const elapsed = api.receivedAt === null ? 0 : performance.now() - api.receivedAt;
       const fresh = state ? Array.from({ length: 7 }, (_, i) => state.joints?.[`${prefix}${side}_joint${i + 1}`])
         .filter(joint => joint && joint.age_ms + elapsed <= (state.stale_after_ms || 1000)).length : 0;
       const status = unavailable ? 'stale' : fresh === 7 ? 'live' : fresh ? 'partial' : arm?.received_joints ? 'stale' : 'unknown';
-      badge.dataset.state = status;
+      if (badge.dataset.state !== status) badge.dataset.state = status;
       const handJoint = state?.joints?.[`${prefix}${side}_finger_joint1`];
       const hand = handJoint ? (handJoint.age_ms + elapsed <= (state.stale_after_ms || 1000) ? 'live' : 'stale') : 'unknown';
       const handLabel = hand === 'live' ? '' : hand === 'stale' ? ' · 夹爪过期' : ' · 夹爪无反馈';
-      badge.textContent = `${side === 'left' ? '左臂' : '右臂'}：${unavailable ? '连接中断' : labels[status]}${handLabel}`;
-      badge.title = arm?.sources?.join('\n') || '启用遥操作 ROS2 节点，或连接发布 /joint_states 的 ROS 控制系统';
+      const text = `${side === 'left' ? '左臂' : '右臂'}：${unavailable ? '连接中断' : labels[status]}${handLabel}`;
+      if (badge.textContent !== text) badge.textContent = text;
+      const source = arm?.sources?.join('\n') || '启用遥操作 ROS2 节点，或连接发布 /joint_states 的 ROS 控制系统';
+      if (badge.title !== source) badge.title = source;
     }
   };
   const poll = async () => {
+    pollTimer = null;
+    if (destroyed || !isVisible() || polling) return;
+    polling = true;
     // Server ages describe its snapshot, not when this response reaches us.
     // Conservatively include the entire request/response time so a delayed
     // snapshot cannot become "live" again merely by arriving at the browser.
@@ -225,19 +267,40 @@ export function mountRobotPreview(container, options = {}) {
       api.lastState = state;
       api.receivedAt = requestedAt;
       api.connectionLost = false;
-      robot?.update(state.positions || {});
+      if (robot?.update(state.positions || {})) requestRender();
       markStates(state);
     } catch (error) {
       if (!destroyed) { api.connectionLost = true; markStates(api.lastState, true); }
     } finally {
-      if (!destroyed) pollTimer = setTimeout(poll, 100);
+      polling = false;
+      if (!destroyed && isVisible()) pollTimer = setTimeout(poll, 200);
     }
   };
+  const handleVisibility = () => {
+    clearTimeout(pollTimer); pollTimer = null;
+    if (!isVisible()) { cancelFrame(); return; }
+    if (api.lastState) markStates(api.lastState, api.connectionLost);
+    requestRender();
+    if (robot && !polling) poll();
+  };
+  document.addEventListener('visibilitychange', handleVisibility);
+  if (typeof IntersectionObserver !== 'undefined') {
+    visibilityObserver = new IntersectionObserver(entries => {
+      const visible = entries[entries.length - 1]?.isIntersecting ?? true;
+      if (visible !== intersecting) { intersecting = visible; handleVisibility(); }
+    });
+    visibilityObserver.observe(viewport);
+  }
+  // Keep stale-feedback indications timely, even while a request is stalled.
+  statusTimer = setInterval(() => {
+    if (isVisible() && api.lastState) markStates(api.lastState, api.connectionLost);
+  }, 250);
   api.ready = (async () => {
     const scene = new THREE.Scene(); scene.background = new THREE.Color(0xf0f4f9);
     const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 50); camera.up.set(0, 0, 1);
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    sceneForRender = scene; cameraForRender = camera;
+    renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false });
+    renderer.setPixelRatio(1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.9;
@@ -248,15 +311,10 @@ export function mountRobotPreview(container, options = {}) {
     const grid = new THREE.GridHelper(2, 16, 0xc2cedd, 0xe0e7ef); grid.rotation.x = Math.PI / 2; scene.add(grid);
     const resize = () => {
       const width = viewport.clientWidth || 360, height = viewport.clientHeight || 255;
-      renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix(); requestRender();
     };
     observer = new ResizeObserver(resize); observer.observe(viewport); resize();
-    const animate = () => {
-      if (destroyed) return;
-      animation = requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera);
-      if (api.lastState) markStates(api.lastState, api.connectionLost);
-    };
-    animate();
+    controls.addEventListener('change', requestRender);
     const xml = await fetchData(options.modelUrl || '/api/robot-preview/model', false);
     if (destroyed) return api;
     robot = await modelFromURDF(xml, scene, fetchAsset); api.model = robot;
@@ -282,7 +340,7 @@ export function mountRobotPreview(container, options = {}) {
       const extent = Math.max(size.length(), 0.5);
       controls.target.copy(center); camera.position.copy(center).addScaledVector(direction, distance);
       controls.minDistance = extent * 0.15; controls.maxDistance = extent * 7;
-      camera.near = 0.01; camera.far = Math.max(distance + extent * 10, 10); camera.updateProjectionMatrix(); controls.update();
+      camera.near = 0.01; camera.far = Math.max(distance + extent * 10, 10); camera.updateProjectionMatrix(); controls.update(); requestRender();
     };
     resetView(); container.querySelector('button').addEventListener('click', resetView);
     message.textContent = '无反馈时保持最后姿态';
