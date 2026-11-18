@@ -1,6 +1,6 @@
 # K1 全向轮底盘 V1.2.6
 
-此目录是 K1 全向轮底盘的当前上位机实现。它继承了 L1 V1.2.5 的白色遥控器动作 trigger、公共机械臂播放器与 systemd 安装方式，但**没有沿用差速轮遥测和速度换算**：K1 使用 `0x510`～`0x517` 八帧 V3 遥测、只接收的 ROS listener，以及独立的全向轮 SI 速度 CLI。旧版本目录仍是 L1 来源资料，不能把旧 `0x051` 里程计或 V1.2.5 控制命令用于 K1。机械臂动作、底盘遥测和底盘速度发送是三个不同入口。
+此目录是 K1 全向轮底盘的当前上位机实现。它继承了 L1 V1.2.5 的白色遥控器动作 trigger、公共机械臂播放器与 systemd 安装方式，但**没有沿用差速轮遥测和速度换算**：K1 使用 `0x510`～`0x517` 八帧 V3 遥测、只接收的 ROS listener，以及独立的全向轮 SI 速度 CLI。L1 的 `/chassis/cmd` 和终端菜单由本目录的 K1 兼容控制器提供，不能直接运行旧版差速控制脚本。机械臂动作、底盘遥测和底盘速度发送是三个不同入口。
 
 以下相对路径均从 SDK 根目录执行。Air 提供底盘控制和状态发布；数据集采集仅 Pro/Max 提供。
 
@@ -11,10 +11,11 @@
 | `chassis_system/chassis_telemetry_v3.py` | 解析并缓存 V3 八帧 | 不打开接口 |
 | `chassis_system/chassis_listener.py` | 发布 ROS telemetry、odom、target、status | 只接收 `can2`，不发送 `0x050` |
 | `chassis_system/chassis_omni_velocity_command.py` | 受限的 SI 速度命令 | 独立发送 `can2/0x050` |
+| `chassis_system/chassis_control.py` | 兼容 `/chassis/cmd` 和终端菜单 | 独立发送 `can2/0x050`；与 SI CLI 二选一 |
 | `chassis_system/can_listener_trigger.sh` | 白色遥控器机械臂动作触发 | 读取 `can2/0x051`，由公共播放器向机械臂 CAN 发动作 |
 | `chassis_system/setup_autostart.sh` | 安装 CAN 配置及 trigger 服务 | 安装时会立即启用服务 |
 
-触发器当前默认值按 2026-10-12 `vlai-Raymond` 实测接线设为底盘 `can2`、左臂 `can1`、右臂 `can0`；这**不是**自动识别，换机器仍须逐项核实。头部电机与右臂共用 `can0`，腰部电机与左臂共用 `can1`，但控制 ID 不同。动作播放器只控制各臂 `0x01`～`0x08`，按总线+电机组持有互斥锁；它不会独占整条 CAN。与头腰节点的同时运行仍需独立实机验收；未核实接线、其他发送进程及急停前，**不要启动 trigger、安装自启动或播放动作**。同一时刻只允许一个 trigger 和一个底盘 `0x050` sender；纯接收 listener 与 Recorder 可并行。CAN 重新配置会中断已打开的 socket。
+触发器当前默认值按 2026-10-12 `vlai-Raymond` 实测接线设为底盘 `can2`、左臂 `can1`、右臂 `can0`；这**不是**自动识别，换机器仍须逐项核实。头部电机与右臂共用 `can0`，腰部电机与左臂共用 `can1`，但控制 ID 不同。动作播放器只控制各臂 `0x01`～`0x08`，按总线+电机组持有互斥锁；它不会独占整条 CAN。与头腰节点的同时运行仍需独立实机验收；未核实接线、其他发送进程及急停前，**不要启动 trigger、安装自启动或播放动作**。同一时刻只允许一个 trigger 和一个底盘 `0x050` sender；纯接收 listener 可与唯一的底盘发送程序并行。CAN 重新配置会中断已打开的 socket。
 
 `xarm-can-listener.service` 名称容易误解：它运行的是白色遥控器机械臂 trigger，**不是** Python telemetry listener。做只读采集前先停止并确认状态：
 
@@ -112,7 +113,42 @@ python -B \
   --vy -0.10 --duration 1 --dry-run
 ```
 
-实车发送须另行授权，先被动抓包、核实唯一 sender/AUTO/急停，再做零帧和低幅度方向验收。下位机可能对直行施加航向保持修正，`0x516` 才是最终物理 target；不能用输入请求反推车辆一定移动了相同距离。不要与旧 `chassis_control.py`、V1.2.5 listener、其他 CLI 或 `cansend` 并行发送。
+实车发送须另行授权，先被动抓包、核实唯一 sender/AUTO/急停，再做零帧和低幅度方向验收。下位机可能对直行施加航向保持修正，`0x516` 才是最终物理 target；不能用输入请求反推车辆一定移动了相同距离。不要与兼容控制器 `chassis_control.py`、旧版发送程序、其他 CLI 或 `cansend` 并行发送。
+
+## 兼容 ROS 与终端控制
+
+`chassis_control.py` 订阅 `/chassis/cmd`（`std_msgs/msg/String`），保留原 `1–5` 方向键和 `s/q`，`6/7` 为左右平移，立柱控制调整为 `8/9/0`，保持 30 Hz 重发。ROS 命令名称不变。它与现有 SI CLI 共用 CAN 发送和互斥锁，**不能同时运行**。V1.2.6 遥测 listener 仍然只读。
+
+| ROS 命令 | 终端 | K1 行为 |
+|---|---|---|
+| `stop` | `1` | 清除底盘方向，不改变立柱指令 |
+| `left` / `right` | `2` / `3` | 原地左转 / 右转，不是横移 |
+| `forward` / `backward` | `4` / `5` | 前进 / 后退，使用 `vx_raw` |
+| `strafe_left` / `strafe_right` | `6` / `7` | 左平移 / 右平移，分别发送负 / 正 `vy_raw`，前进和转向分量为零 |
+| `lift_up` / `lift_down` / `lift_stop` | `8` / `9` / `0` | K1 的 byte 7 分别为 `1` / `2` / `0`；使用前核对实机固件 |
+| `speed_0` ～ `speed_800` | `s` 后输入数值 | 设置 raw 速度，保留当前方向；默认 `306` |
+| — | `q` 或 Ctrl+C | 发送底盘、立柱全零帧至少 0.5 秒，然后退出 |
+
+方向和立柱命令会持续重发，直到收到新的命令或退出。`speed_0` 只把底盘速度设零，不清除方向，之后设置非零速度会按原方向恢复。raw 不是 m/s，也不经过 SI CLI 的输入限幅；启动后底盘和立柱均为停止。实机启动前须核对遥控器 AUTO、急停、CAN 配置与唯一发送者（包括旧 VR 发送进程）。
+
+平移同样支持运行中发送 `speed_N` 改速，用 `stop` 停止；立柱状态不受影响。
+兼容 CAN 横移指令仍为右正，故左移发负值，与 SI CLI 的发送方向一致。新增入口不修改固件或遥测，实机方向仍需低速验收。
+
+在 Ubuntu 22.04／ROS 2 Humble 环境中，使用能导入 `rclpy` 的 Python。从 SDK 根目录执行；首次在该 Python 环境安装 `python-can` 后启动：
+
+```bash
+source /opt/ros/humble/setup.bash
+python3 -m pip install python-can
+python3 -B -u publish/modules/src/xarm_chassis/V1.2.6/chassis_system/chassis_control.py
+```
+
+另一个终端 source 同一 ROS 环境后，可发送兼容命令。以下示例用于刚启动、底盘和立柱均保持停止时设置待用速度：
+
+```bash
+timeout 5s ros2 topic pub --once /chassis/cmd std_msgs/msg/String '{data: stop}'
+timeout 5s ros2 topic pub --once /chassis/cmd std_msgs/msg/String '{data: speed_120}'
+```
+
 
 ## 白色遥控器机械臂动作与自启动
 
