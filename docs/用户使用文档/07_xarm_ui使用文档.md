@@ -200,3 +200,33 @@ sudo bash ./publish/xarm_can/package/libexec/setup_can_interfaces.sh
 第 4.3 节执行 `cd ./publish/modules/src/xarm_ui` 后，当前目录变为 UI 目录；
 此后可直接执行 `bash start_ui.sh` 或 `XARM_UI_PORT=5001 bash start_ui.sh`。
 需再次执行 SDK 根目录命令时，请在 SDK 根目录另开终端，避免在 UI 目录重复拼接路径。
+
+### 7.4 在 NVIDIA Jetson Orin 上使用 GPU 渲染
+
+如果机器人模型拖动卡顿，或打开 UI 后 Firefox 的菜单和窗口也变慢，先在浏览器地址栏打开 `about:support`，查看 **Graphics（图形）**。如果 **Compositing** 显示 `WebRender (Software)`，且 **WebGL 2 Driver Renderer** 显示 `llvmpipe`，说明界面合成和 3D 模型都在使用 CPU 软件渲染。
+
+在 Orin 的图形桌面打开终端，执行 `glxinfo -B`（缺少该命令时可用 `sudo apt install mesa-utils` 安装）。如果 **OpenGL renderer string** 显示 `NVIDIA Tegra Orin`，说明系统 OpenGL 能使用 GPU，可以安装 [Mozilla 官方 Linux ARM64 独立版](https://support.mozilla.org/en-US/kb/install-firefox-linux)，用它打开机器人 UI。请在用户可写目录下的桌面终端执行以下首次安装命令。独立版会使用单独的浏览器配置。
+
+```bash
+(
+  set -e
+  browser_dir=./firefox-orin
+  mkdir "$browser_dir"
+  curl -fL --retry 3 \
+    'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64-aarch64&lang=en-US' \
+    -o "$browser_dir/firefox.tar.xz"
+  tar -xJf "$browser_dir/firefox.tar.xz" -C "$browser_dir"
+  mkdir "$browser_dir/profile"
+  env -u LD_LIBRARY_PATH -u LD_PRELOAD "$browser_dir/firefox/firefox" \
+    --no-remote --new-instance --profile "$browser_dir/profile" about:support
+)
+```
+
+在新窗口确认 **Application Binary** 路径包含 `firefox-orin`，再查看图形信息。**Compositing** 显示 `WebRender`（无 `Software`），且 **WebGL 2 Driver Renderer** 显示 NVIDIA 时，说明浏览器已使用硬件合成和 NVIDIA 的 WebGL 渲染。确认后在同一窗口打开机器人 UI。若仍显示 `llvmpipe`，说明 WebGL 仍在使用软件渲染，应继续检查浏览器与 Jetson 图形驱动的接入。
+
+以后从同一目录启动已安装的浏览器，无需重新下载。将示例地址替换成实际的 UI 地址。
+
+```bash
+env -u LD_LIBRARY_PATH -u LD_PRELOAD ./firefox-orin/firefox/firefox \
+  --no-remote --new-instance --profile ./firefox-orin/profile http://localhost:5000
+```
